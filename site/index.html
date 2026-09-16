@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Paint Ithaca — City model</title>
+  <meta name="description" content="Explore and download the 3D model of Ithaca built from community walks.">
+  <link rel="canonical" href="https://paint-ithaca.com/">
+  <meta name="theme-color" content="#14181c">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314181c'/%3E%3Ctext x='9' y='24' font-family='Georgia' font-size='29' fill='%23efd0bf'%3Ep%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/city.css">
+  <script type="module" src="/city.js"></script>
+</head>
+<body>
+  <main class="viewer" aria-label="Ithaca 3D model">
+    <div id="viewport" tabindex="0" aria-label="3D model. Drag to orbit, scroll to zoom, right-drag to pan. Arrow keys orbit; plus and minus zoom."></div>
+    <div class="shade" aria-hidden="true"></div>
+    <header class="app-header">
+      <h1><img class="logo" src="/logo.svg" alt="">paint ithaca.</h1>
+      <nav aria-label="Model controls">
+        <button id="reset" class="icon-button" aria-label="Reset view" title="Reset view" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9a8 8 0 1 1-.1 6M4 4v5h5"/></svg>
+        </button>
+        <button id="locate" class="icon-button" aria-label="Show my location in the model" title="My location" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle class="filled" cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
+        <a id="download" class="icon-button" role="button" tabindex="0" aria-label="Download city model" title="Download city model" aria-disabled="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m-5-5 5 5 5-5M5 18v3h14v-3"/></svg>
+        </a>
+        <a class="icon-button" href="/map.html" aria-label="Walk map and leaderboard" title="Walk map">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14"/></svg>
+        </a>
+        <button id="info-open" class="icon-button" aria-label="About this model" title="About" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle class="filled" cx="12" cy="7" r=".8"/></svg>
+        </button>
+      </nav>
+    </header>
+    <div id="loading" class="loading" role="status"><span class="spinner" aria-hidden="true"></span><span class="sr-only">Loading city model</span></div>
+    <p id="viewer-status" class="sr-only" role="status"></p>
+    <p id="download-status" class="download-status" role="status"></p>
+    <p id="viewer-error" role="alert" hidden></p>
+    <noscript>Enable JavaScript to view the 3D model. <a href="/city-model/preview.ply" download>Download the PLY preview</a>.</noscript>
+  </main>
+  <dialog id="info" aria-labelledby="info-title">
+    <div class="sheet-header">
+      <h2 id="info-title">Ithaca in 3D</h2>
+      <form method="dialog"><button class="icon-button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></form>
+    </div>
+    <p>A shared 3D model of Ithaca, rebuilt from short walking videos people record with the Paint Ithaca app. Every walk adds streets the model does not have yet.</p>
+    <p id="model-date" class="muted"></p>
+    <p id="model-count" class="muted"></p>
+  </dialog>
+</body>
+</html>

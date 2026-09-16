@@ -1,0 +1,17 @@
+{
+  "origin_projected": [
+    377249.99950000003,
+    4700249.9995,
+    150.0
+  ],
+  "horizontal_epsg": 6347,
+  "axes": [
+    "east",
+    "up",
+    "south"
+  ],
+  "units": "metres",
+  "alignment": "approximate",
+  "note": "Accepted dense groups replace their old placements; unresolved groups retain tentative placements. GPS horizontal consistency and a ground/camera-height prior do not establish surveyed placement.",
+  "raw_components": "Component PLY files retain their independent original COLMAP coordinates; do not concatenate those raw files."
+}
