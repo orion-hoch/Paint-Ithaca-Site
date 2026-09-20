@@ -2,7 +2,10 @@ import * as THREE from './vendor/three.module.js';
 import {OrbitControls} from './vendor/OrbitControls.js';
 
 const $ = id => document.getElementById(id);
-const base = new URL('./city-model/', location.href);
+// ?embed=1: inside the iPhone app, which adds its own exit button top-right and has no use for download or reset.
+if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
+// Where the model lives: <meta name="model-base"> - same-origin today, the scene bucket's public URL when it is enabled.
+const base = new URL(document.querySelector('meta[name=model-base]')?.content || './city-model/', location.href);
 const asset = path => new URL(path, base).href;
 const megabytes = bytes => `${(bytes / 1000000).toFixed(bytes < 10000000 ? 1 : 0)} MB`;
 const infoSheet = $('info');
@@ -32,22 +35,31 @@ const srgb = Float32Array.from({length: 256}, (_, i) => {
   const x = i / 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4;
 });
 
-// preview.bin / tile record: x y z float32 + rgba uint8.
+// preview.bin / tile record: x y z float32 + rgba uint8; the alpha byte is the semantic class (8 = vegetation).
+// Vegetation is written last so hiding the trees is a draw-range change rather than a rebuild.
+const VEGETATION = 8;
 function geometryFrom(buffer, expected) {
   if (!buffer.byteLength || buffer.byteLength !== expected * 16) throw new Error('A model tile is incomplete.');
   const raw = new DataView(buffer), count = expected;
   const positions = new Float32Array(count * 3), colors = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    for (let axis = 0; axis < 3; axis++) {
-      const value = raw.getFloat32(i * 16 + axis * 4, true);
-      if (!Number.isFinite(value)) throw new Error('The model contains invalid coordinates.');
-      positions[i * 3 + axis] = value;
-      colors[i * 3 + axis] = srgb[raw.getUint8(i * 16 + 12 + axis)];
+  let solid = 0, withoutTrees = 0;
+  for (const pass of [0, 1]) {
+    for (let i = 0; i < count; i++) {
+      if ((raw.getUint8(i * 16 + 15) === VEGETATION) !== (pass === 1)) continue;
+      for (let axis = 0; axis < 3; axis++) {
+        const value = raw.getFloat32(i * 16 + axis * 4, true);
+        if (!Number.isFinite(value)) throw new Error('The model contains invalid coordinates.');
+        positions[solid * 3 + axis] = value;
+        colors[solid * 3 + axis] = srgb[raw.getUint8(i * 16 + 12 + axis)];
+      }
+      solid++;
     }
+    if (pass === 0) withoutTrees = solid;
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.userData = {withoutTrees, count};
   return geometry;
 }
 
@@ -59,6 +71,7 @@ async function load() {
   const download = info.download;
   $('download').removeAttribute('aria-disabled');
   const downloadLabel = `Download city model · ${megabytes(download.bytes)}`;
+  $('download').textContent = downloadLabel;
   $('download').setAttribute('aria-label', downloadLabel);
   $('download').title = downloadLabel;
   if (download.parts) {
@@ -94,8 +107,8 @@ async function load() {
   catch { throw new Error('Your browser could not start the 3D viewer. The model download is still available.'); }
   const viewport = $('viewport');
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#14181c');
-  const camera = new THREE.PerspectiveCamera(50, 1, .1, 20000);
+  scene.background = new THREE.Color('#14171C');
+  const camera = new THREE.PerspectiveCamera(50, 1, .05, 50000);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   viewport.append(renderer.domElement);
@@ -115,27 +128,45 @@ async function load() {
   });
   const version = info.updated_at || info.snapshot;
   const material = new THREE.PointsMaterial({vertexColors: true, size: 1.7, sizeAttenuation: false});
+  const loaded = [];
+  let trees = true;
+  const applyTrees = () => {
+    for (const {geometry} of loaded) geometry.setDrawRange(0, trees ? geometry.userData.count : geometry.userData.withoutTrees);
+    draw();
+  };
   const addPoints = async ({file, points}) => {
     const url = new URL(asset(file));
     url.searchParams.set('version', version);
     const geometry = geometryFrom(await (await response(url)).arrayBuffer(), points);
     geometry.computeBoundingSphere(); // three.js frustum-culls each tile by this sphere
-    scene.add(new THREE.Points(geometry, material));
+    if (!trees) geometry.setDrawRange(0, geometry.userData.withoutTrees);
+    const mesh = new THREE.Points(geometry, material);
+    loaded.push(mesh);
+    scene.add(mesh);
     draw();
   };
   const [[x0, y0, z0], [x1, y1, z1]] = info.bounds;
   const bounds = new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1));
-  const center = bounds.getCenter(new THREE.Vector3());
-  const radius = Math.max(bounds.getSize(new THREE.Vector3()).length() / 2, 2);
-  controls.minDistance = .5; controls.maxDistance = radius * 12;
+  // Open on the densest walk when the model is a few walks scattered across the city; the bounds would show specks.
+  const center = info.focus ? new THREE.Vector3(...info.focus.center) : bounds.getCenter(new THREE.Vector3());
+  const radius = Math.max(info.focus ? info.focus.radius : bounds.getSize(new THREE.Vector3()).length() / 2, 2);
+  controls.minDistance = 0.05; controls.maxDistance = Infinity;  // no leash: get down to the pavement or back off to the whole city
+  controls.zoomSpeed = 1.6;
   function fit(top = false) {
     const distance = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(1, 1 / camera.aspect);
     camera.up.set(0, 1, 0);
     camera.position.copy(center).add(top ? new THREE.Vector3(0, distance, distance * .0001) : new THREE.Vector3(0, 1.4, 1).normalize().multiplyScalar(distance));
     controls.target.copy(center); controls.update(); draw();
   }
-  $('reset').disabled = false;
-  $('reset').onclick = () => fit();
+  $('trees').disabled = false;
+  $('trees').onclick = () => {
+    trees = !trees;
+    const label = trees ? 'Hide trees' : 'Show trees';
+    $('trees').setAttribute('aria-pressed', String(trees));
+    $('trees').setAttribute('aria-label', label);
+    $('trees').title = label;
+    applyTrees();
+  };
   viewport.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', 'Home'].includes(event.key)) return;
     event.preventDefault();
@@ -165,6 +196,30 @@ async function load() {
     return pending.shift();
   };
   await Promise.all(Array.from({length: 4}, async () => { for (let tile; (tile = nearest());) await addPoints(tile); }));
+  // Reference layer: airborne LiDAR, coarse, only where no walk covers the ground. It is loaded last and drawn
+  // smaller and dimmer than the model so it reads as "nobody has scanned here yet" rather than as scanned geometry.
+  if (info.reference) {
+    try {
+      const url = new URL(asset(info.reference.file));
+      url.searchParams.set('version', version);
+      const geometry = geometryFrom(await (await response(url)).arrayBuffer(), info.reference.points);
+      geometry.computeBoundingSphere();
+      const ghost = new THREE.Points(geometry, new THREE.PointsMaterial({vertexColors: true, size: 1.1, sizeAttenuation: false, opacity: .55, transparent: true, depthWrite: false}));
+      ghost.renderOrder = -1;
+      ghost.userData.reference = true;      // skipped by the ground estimate below
+      scene.add(ghost);
+      $('context').disabled = false;
+      $('context').onclick = () => {
+        ghost.visible = !ghost.visible;
+        const label = ghost.visible ? 'Hide unmapped ground' : 'Show unmapped ground';
+        $('context').setAttribute('aria-pressed', String(ghost.visible));
+        $('context').setAttribute('aria-label', label);
+        $('context').title = label;
+        draw();
+      };
+      draw();
+    } catch (error) { console.warn('reference layer unavailable:', error.message); }
+  }
   setupLocate(info, scene, camera, controls, draw);
 }
 
@@ -173,8 +228,8 @@ function setupLocate(info, scene, camera, controls, draw) {
   const {affine: [a, b, c, d, e, f]} = info.geo;
   const [[x0, y0, z0], [x1, y1, z1]] = info.bounds;
   const marker = new THREE.Group();
-  marker.add(new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({color: '#d6bfeb', transparent: true, opacity: .35, depthTest: false})));
-  marker.add(new THREE.Mesh(new THREE.CircleGeometry(1.5, 24), new THREE.MeshBasicMaterial({color: '#f0caba', depthTest: false})));
+  marker.add(new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({color: '#D6BFEB', transparent: true, opacity: .35, depthTest: false})));
+  marker.add(new THREE.Mesh(new THREE.CircleGeometry(1.5, 24), new THREE.MeshBasicMaterial({color: '#F0C9BA', depthTest: false})));
   marker.rotation.x = -Math.PI / 2; marker.renderOrder = 1; marker.visible = false;
   scene.add(marker);
   // Ground height: lower quartile of the nearest surface points, widening the search until enough are found.
@@ -183,7 +238,7 @@ function setupLocate(info, scene, camera, controls, draw) {
       const ys = [];
       for (const object of scene.children) {
         const position = object.geometry?.getAttribute('position');
-        if (!position) continue;
+        if (!position || object.userData?.reference) continue;
         for (let i = 0; i < position.count; i++) {
           if (Math.abs(position.getX(i) - x) < radius && Math.abs(position.getZ(i) - z) < radius) ys.push(position.getY(i));
         }

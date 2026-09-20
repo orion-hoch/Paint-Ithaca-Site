@@ -1,6 +1,6 @@
 @font-face{font-family:'Paint Ithaca Serif';src:url('./fonts/Fraunces.ttf') format('truetype');font-weight:400;font-display:swap}
 @font-face{font-family:'DM Sans';src:url('./fonts/DMSans.ttf') format('truetype');font-weight:100 900;font-display:swap}
-:root{font:16px/1.5 'DM Sans',system-ui,sans-serif;color:#fff;background:#14181c;color-scheme:dark}
+:root{font:16px/1.5 'DM Sans',system-ui,sans-serif;color:#fff;background:#14171C;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;overflow:hidden}
 button,a{-webkit-tap-highlight-color:transparent}
@@ -47,18 +47,29 @@ details p{color:#676b5f;font-size:14px}
 .app-header nav{display:flex;gap:2px;pointer-events:auto}
 [aria-busy=true]{opacity:.5;pointer-events:none}
 .app-header a.icon-button{color:inherit}
+#trees .slash{display:none}
+#trees[aria-pressed=false] .slash{display:block}
+#trees[aria-pressed=false]{color:#ffffff8c}
+#context[aria-pressed=false]{color:#ffffff8c}
 /* Walk map page */
-.map-page{color-scheme:light;color:#4c514b;background:#f5f3ec}
+.map-page{--panel:34vh;color-scheme:light;color:#4c514b;background:#f5f3ec}
 .map-page .viewer{display:flex;flex-direction:column;overflow:hidden}
-#map{flex:1;min-height:45vh;background:#e9e6dc}
+#map{flex:1;min-height:0;background:#e9e6dc}
 .map-page h1{color:#4c514b;text-shadow:none;background:#fff;padding:5px 14px 5px 8px;border-radius:14px;box-shadow:0 2px 10px #0003;pointer-events:auto}
 .map-page .logo{filter:none}
 .map-page .app-header{z-index:1000}
 .map-page .icon-button:hover{background:#373a2e0c}
-.locate{position:absolute;right:max(14px,env(safe-area-inset-right));top:calc(45vh - 62px);z-index:1000;background:#fff;box-shadow:0 2px 10px #0003}
+.locate{position:absolute;right:max(14px,env(safe-area-inset-right));top:calc(100vh - var(--panel) - 62px);z-index:1000;background:#fff;box-shadow:0 2px 10px #0003}
 .map-page .locate:hover{background:#fff}
-.panel{height:55vh;display:flex;flex-direction:column;background:#f5f3ec;border-top:1px solid #373a2e22}
-.tabs{display:flex;gap:4px;padding:8px 12px 0}
+.panel{height:var(--panel);display:flex;flex-direction:column;background:#f5f3ec;border-top:1px solid #373a2e22}
+.tabs{display:flex;align-items:center;gap:4px;padding:8px 12px 0}
+#collapse{margin-left:auto;width:40px;height:40px}
+#collapse .plus{display:none}
+.collapsed #collapse .plus{display:block}
+.collapsed .panel{height:auto}
+.collapsed .panel ol,.collapsed #map-status{display:none}
+.collapsed .locate,.collapsed .replay{top:auto;bottom:calc(var(--panel-collapsed) + 14px)}
+.map-page{--panel-collapsed:56px}
 .tabs button{background:none;border:0;padding:8px 14px;border-radius:999px;color:#676b5f;font-size:15px}
 .tabs button[aria-selected=true]{background:#373a2e12;color:#4c514b}
 #map-status{margin:6px 22px;font-size:13px}
@@ -71,9 +82,17 @@ details p{color:#676b5f;font-size:14px}
 .swatch{width:14px;height:14px;border-radius:50%;flex-shrink:0}
 .rank{width:24px;color:#676b5f;font-variant-numeric:tabular-nums}
 @media(min-width:900px){.map-page .viewer{flex-direction:row}#map{height:100%}.panel{width:360px;height:100%;border-top:0;border-left:1px solid #373a2e22;padding-top:64px}.locate{top:auto;bottom:max(24px,env(safe-area-inset-bottom));right:384px}}
-.replay{position:absolute;left:max(14px,env(safe-area-inset-left));right:76px;top:calc(45vh - 62px);z-index:1000;display:flex;align-items:center;gap:8px;padding:2px 14px 2px 2px;border-radius:999px;background:#fff;box-shadow:0 2px 10px #0003}
+/* Desktop collapse: the list column folds away entirely so the map is full width; only the buttons stay. */
+@media(min-width:900px){.map-page.collapsed .panel{position:absolute;top:0;right:0;width:auto;height:auto;border-left:0;background:transparent;z-index:1000;pointer-events:none}.map-page.collapsed .tabs{margin:0 4px;padding:3px 4px;background:#fff;border-radius:14px;box-shadow:0 2px 10px #0003;pointer-events:auto}.map-page.collapsed #collapse{background:transparent;box-shadow:none}.map-page.collapsed .locate{right:max(24px,env(safe-area-inset-right))}.map-page.collapsed .replay{right:76px}}
+.replay{position:absolute;left:max(14px,env(safe-area-inset-left));right:76px;top:calc(100vh - var(--panel) - 62px);z-index:1000;display:flex;align-items:center;gap:8px;padding:2px 14px 2px 2px;border-radius:999px;background:#fff;box-shadow:0 2px 10px #0003}
 .replay input{flex:1;accent-color:#c0392b;min-width:0}
 #clock{font-size:13px;font-variant-numeric:tabular-nums;color:#676b5f;white-space:nowrap}
 .replay .icon-button svg{fill:currentColor}
 @media(min-width:900px){.replay{top:auto;bottom:max(24px,env(safe-area-inset-bottom));right:450px;left:max(24px,env(safe-area-inset-left));max-width:520px}}
 .replay .playing svg path{d:path('M7 5h4v14H7zM13 5h4v14h-4z')}
+/* Inside the app the native bar owns the controls; the page shows nothing but the content. */
+.embed .app-header,.embed .sheet-actions a[href='/']{display:none!important}
+.embed .replay{right:76px}
+.embed #locate{display:inline-flex;position:absolute;right:max(14px,env(safe-area-inset-right));bottom:max(24px,env(safe-area-inset-bottom));background:#0008;z-index:5}
+@media(max-width:600px){h1{font-size:22px;gap:6px}.logo{height:28px}.app-header{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(6px,env(safe-area-inset-right))}.icon-button{width:42px;height:42px;padding:9px}.app-header nav{gap:0}}
+@media(max-width:420px){h1 span{display:none}}

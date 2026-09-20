@@ -1,11 +1,18 @@
 const $ = id => document.getElementById(id);
+if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
 const CELL_M = 20;
-const PALETTE = ['#c0392b', '#7d6b9e', '#4f7d5a', '#b8742a', '#2f6f8f', '#a0527d', '#5c6b2f', '#8a5a3c'];
+const PALETTE = ['#BF382B', '#7D6B9E', '#4F7D59', '#B87329', '#2E708F', '#A1527D'];   // walkPalette in the app, exactly
 const infoSheet = $('info');
 $('info-open').onclick = () => infoSheet.showModal();
 infoSheet.addEventListener('click', event => { if (event.target === infoSheet) infoSheet.close(); });
+$('collapse').onclick = () => {
+  const open = document.body.classList.toggle('collapsed') === false;
+  $('collapse').setAttribute('aria-expanded', open);
+  $('collapse').setAttribute('aria-label', open ? 'Collapse list' : 'Expand list');
+};
 for (const tab of document.querySelectorAll('[role=tab]')) {
   tab.onclick = () => {
+    if (document.body.classList.contains('collapsed')) $('collapse').click();   // a tab in the collapsed bar opens the list
     for (const other of document.querySelectorAll('[role=tab]')) other.setAttribute('aria-selected', other === tab);
     $('walks').hidden = tab.dataset.tab !== 'walks';
     $('leaders').hidden = tab.dataset.tab !== 'leaders';
@@ -23,6 +30,25 @@ const metres = ([lat1, lon1], [lat2, lon2]) => {
 };
 const cellOf = ([lat, lon]) => `${Math.floor(lat * 111320 / CELL_M)}:${Math.floor(lon * 111320 * Math.cos(lat * Math.PI / 180) / CELL_M)}`;
 const name = walk => walk.contributor || 'Anonymous';
+const COVER_M = 15;   // how far from a walked route the model can be trusted to have points
+// A closed polygon COVER_M either side of a route, in a local metre frame (fine at street scale).
+function band(points) {
+  const [lat0, lon0] = points[0], ky = 111320, kx = 111320 * Math.cos(lat0 * Math.PI / 180);
+  const xy = points.map(([lat, lon]) => [(lon - lon0) * kx, (lat - lat0) * ky]), left = [], right = [];
+  for (let i = 0; i < xy.length; i++) {
+    const a = xy[Math.max(0, i - 1)], b = xy[Math.min(xy.length - 1, i + 1)], n = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const px = -(b[1] - a[1]) / n * COVER_M, py = (b[0] - a[0]) / n * COVER_M;
+    left.push([xy[i][0] + px, xy[i][1] + py]); right.push([xy[i][0] - px, xy[i][1] - py]);
+  }
+  return [...left, ...right.reverse()].map(([x, y]) => [lat0 + y / ky, lon0 + x / kx]);
+}
+// Distance in metres from a point to a route segment (same local frame).
+function segmentMetres(p, a, b) {
+  const ky = 111320, kx = 111320 * Math.cos(a[0] * Math.PI / 180);
+  const ax = 0, ay = 0, bx = (b[1] - a[1]) * kx, by = (b[0] - a[0]) * ky, px = (p[1] - a[1]) * kx, py = (p[0] - a[0]) * ky;
+  const len2 = bx * bx + by * by, t = len2 ? Math.max(0, Math.min(1, (px * bx + py * by) / len2)) : 0;
+  return Math.hypot(px - (ax + t * bx), py - (ay + t * by));
+}
 const colorOf = (() => { const seen = new Map(); return who => seen.get(who) ?? seen.set(who, PALETTE[seen.size % PALETTE.length]).get(who); })();
 const when = iso => new Date(iso).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
 
@@ -51,16 +77,28 @@ const replay = (() => {
   const dot = L.circleMarker([0, 0], {radius: 8, color: '#fff', weight: 2, fillOpacity: 1});
   const trail = L.polyline([], {weight: 6, opacity: 1});
   const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const cone = L.polygon([], {color: '#fff', weight: 1, fillOpacity: .35, interactive: false});
   const at = seconds => {
     const p = walk.points;
     let i = 0;
     while (i < p.length - 2 && p[i + 1][2] <= seconds) i++;
     const [a, b] = [p[i], p[i + 1]], span = b[2] - a[2], k = span > 0 ? Math.min(1, Math.max(0, (seconds - a[2]) / span)) : 1;
-    return {pos: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k], done: p.slice(0, i + 1).map(q => [q[0], q[1]])};
+    let bearing = null;
+    if (a[3] != null && b[3] != null) { const d = ((b[3] - a[3] + 540) % 360) - 180; bearing = (a[3] + d * k + 360) % 360; }  // shortest arc
+    else bearing = a[3] ?? b[3];
+    return {pos: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k], bearing, done: p.slice(0, i + 1).map(q => [q[0], q[1]])};
+  };
+  // Field of view of the phone camera as a wedge: 14 m long, 60° wide, centred on the look direction.
+  const wedge = ([lat, lon], bearing) => {
+    if (bearing == null) return [];
+    const step = m => [m / 111320, m / (111320 * Math.cos(lat * Math.PI / 180))];
+    const [dLat, dLon] = step(14);
+    const ray = deg => [lat + dLat * Math.cos(deg * Math.PI / 180), lon + dLon * Math.sin(deg * Math.PI / 180)];
+    return [[lat, lon], ...[-30, -15, 0, 15, 30].map(off => ray(bearing + off))];
   };
   const show = () => {
-    const {pos, done} = at(t);
-    dot.setLatLng(pos); trail.setLatLngs([...done, pos]);
+    const {pos, bearing, done} = at(t);
+    dot.setLatLng(pos); trail.setLatLngs([...done, pos]); cone.setLatLngs(wedge(pos, bearing));
     $('scrub').value = duration ? Math.round(t / duration * 1000) : 0;
     $('clock').textContent = `${clock(t)} / ${clock(duration)}`;
   };
@@ -79,8 +117,8 @@ const replay = (() => {
     start(next, color) {
       pause(); walk = next; t = 0;
       duration = Math.max(walk.points[walk.points.length - 1][2], 1);
-      dot.setStyle({fillColor: color}); trail.setStyle({color});
-      trail.addTo(map); dot.addTo(map);
+      dot.setStyle({fillColor: color}); trail.setStyle({color}); cone.setStyle({fillColor: color});
+      trail.addTo(map); cone.addTo(map); dot.addTo(map);
       $('replay').hidden = false;
       show(); play();
     },
@@ -88,20 +126,23 @@ const replay = (() => {
 })();
 
 async function load() {
-  const [tracks, model] = await Promise.all(['/tracks.json', '/city-model/model.json'].map(async url => {
+  const modelBase = new URL(document.querySelector('meta[name=model-base]')?.content || './city-model/', location.href);
+  const [tracks, model] = await Promise.all(['/tracks.json', new URL('model.json', modelBase).href].map(async url => {
     const result = await fetch(url, {cache: 'no-cache'});
     if (!result.ok) throw new Error(`Could not load ${url} (${result.status}).`);
     return result.json();
   }));
-  const corners = model.geo?.corners_wgs84 ?? [];
-  if (corners.length) L.polygon(corners, {color: '#4c514b', weight: 1.5, dashArray: '6 6', fill: false}).addTo(map).bindTooltip('Modelled area');
-  if (corners.length) inside = ({lat, lng}) => corners.reduce((odd, [aLat, aLon], i) => {
-    const [bLat, bLon] = corners[(i + 1) % corners.length];
-    return (aLat > lat) !== (bLat > lat) && lng < (bLon - aLon) * (lat - aLat) / (bLat - aLat) + aLon ? !odd : odd;
-  }, false);
   const walks = tracks.walks.slice().reverse(), lines = new Map();
+  // Coverage is the streets the model actually has points on: a band around every route the nightly batch has
+  // reconstructed (model.json lists them), not a box around everything. Walks still waiting for a batch show as lines only.
+  const modelled = new Set((model.walks ?? []).map(w => w.capture)), covered = [];
+  for (const walk of walks) if (modelled.has(walk.id) && walk.points.length > 1) {
+    covered.push(walk.points);
+    L.polygon(band(walk.points), {color: '#4c514b', weight: 1, dashArray: '4 5', fillColor: '#6e7a61', fillOpacity: .18, interactive: false}).addTo(map);
+  }
+  if (covered.length) inside = ({lat, lng}) => covered.some(pts => pts.some((p, i) => i && segmentMetres([lat, lng], pts[i - 1], p) <= COVER_M));
   for (const walk of walks) {
-    const line = L.polyline(walk.points, {color: colorOf(name(walk)), weight: 4, opacity: .8}).addTo(map);
+    const line = L.polyline(walk.points.map(q => [q[0], q[1]]), {color: colorOf(name(walk)), weight: 4, opacity: .8}).addTo(map);  // Leaflet rejects 4-element points
     line.bindTooltip(`${name(walk)} · ${when(walk.date)}`);
     lines.set(walk.id, line);
   }

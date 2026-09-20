@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.railpack.com",
   "deploy": {
-    "startCommand": "python build.py --tracks && python -m http.server $PORT --directory site"
+    "startCommand": "python build.py --serve $PORT"
   }
 }

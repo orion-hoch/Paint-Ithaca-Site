@@ -6,27 +6,29 @@
   <title>Paint Ithaca — City model</title>
   <meta name="description" content="Explore and download the 3D model of Ithaca built from community walks.">
   <link rel="canonical" href="https://paint-ithaca.com/">
-  <meta name="theme-color" content="#14181c">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314181c'/%3E%3Ctext x='9' y='24' font-family='Georgia' font-size='29' fill='%23efd0bf'%3Ep%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/city.css">
-  <script type="module" src="/city.js"></script>
+  <meta name="model-base" content="https://model.paint-ithaca.com/city-model/">
+  <meta name="theme-color" content="#14171C">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/city.css?v=e7a9f235">
+  <script type="module" src="/city.js?v=b82c9fb2"></script>
 </head>
 <body>
   <main class="viewer" aria-label="Ithaca 3D model">
     <div id="viewport" tabindex="0" aria-label="3D model. Drag to orbit, scroll to zoom, right-drag to pan. Arrow keys orbit; plus and minus zoom."></div>
     <div class="shade" aria-hidden="true"></div>
     <header class="app-header">
-      <h1><img class="logo" src="/logo.svg" alt="">paint ithaca.</h1>
+      <h1><img class="logo" src="/logo.png" alt="Paint Ithaca"><span>paint ithaca.</span></h1>
       <nav aria-label="Model controls">
-        <button id="reset" class="icon-button" aria-label="Reset view" title="Reset view" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9a8 8 0 1 1-.1 6M4 4v5h5"/></svg>
+        <button id="context" class="icon-button" aria-label="Hide unmapped ground" title="Unmapped ground" aria-pressed="true" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5 12 4l9 4.5-9 4.5z"/><path d="m5.5 12-2.5 1.3 9 4.5 9-4.5-2.5-1.3" stroke-dasharray="2 2.4"/></svg>
+        </button>
+        <button id="trees" class="icon-button" aria-label="Hide trees" title="Hide trees" aria-pressed="true" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 13h4L6 19h12l-3.5-6h4z"/><path d="M12 19v2"/><path class="slash" d="M4 20 20 4"/></svg>
         </button>
         <button id="locate" class="icon-button" aria-label="Show my location in the model" title="My location" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle class="filled" cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
         </button>
-        <a id="download" class="icon-button" role="button" tabindex="0" aria-label="Download city model" title="Download city model" aria-disabled="true">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m-5-5 5 5 5-5M5 18v3h14v-3"/></svg>
-        </a>
         <a class="icon-button" href="/map.html" aria-label="Walk map and leaderboard" title="Walk map">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14"/></svg>
         </a>
@@ -39,7 +41,7 @@
     <p id="viewer-status" class="sr-only" role="status"></p>
     <p id="download-status" class="download-status" role="status"></p>
     <p id="viewer-error" role="alert" hidden></p>
-    <noscript>Enable JavaScript to view the 3D model. <a href="/city-model/preview.ply" download>Download the PLY preview</a>.</noscript>
+    <noscript>Enable JavaScript to view the 3D model. <a id="noscript-download" href="https://model.paint-ithaca.com/city-model/preview.ply" download>Download the PLY preview</a>.</noscript>
   </main>
   <dialog id="info" aria-labelledby="info-title">
     <div class="sheet-header">
@@ -49,6 +51,10 @@
     <p>A shared 3D model of Ithaca, rebuilt from short walking videos people record with the Paint Ithaca app. Every walk adds streets the model does not have yet.</p>
     <p id="model-date" class="muted"></p>
     <p id="model-count" class="muted"></p>
+    <div class="sheet-actions">
+      <a id="download" role="button" tabindex="0" aria-disabled="true">Download city model</a>
+      <a href="/map.html">Walk map</a>
+    </div>
   </dialog>
 </body>
 </html>

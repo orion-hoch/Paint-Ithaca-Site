@@ -4,6 +4,7 @@
     build.py --retile        re-tile the staged preview and refit the geo transform
     build.py --tracks        rebuild tracks.json (walk map + leaderboard) from the uploads bucket
     build.py --all           retile + tracks + script checks (what CI runs)
+    build.py --serve PORT    serve site/ and rebuild tracks.json every 10 minutes (what Railway runs)
 
 R2 credentials come from R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET,
 or from the JSON file named by R2_SETTINGS (keys s3_endpoint, access_key_id, secret_access_key, uploads_bucket).
@@ -11,10 +12,12 @@ or from the JSON file named by R2_SETTINGS (keys s3_endpoint, access_key_id, sec
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 from uuid import UUID
 
 import numpy as np
@@ -25,12 +28,14 @@ DIST = ROOT / 'site'
 PRIVATE_KEYS = {'credits', 'credits_url', 'mapillary_images', 'displayed_images_by_source', 'input_note', 'details',
                 'summary', 'coverage', 'provenance', 'retained_provenance', 'surface_quality', 'components', 'details_file',
                 'refinement_review', 'registration_scope'}
-PUBLIC_FILES = {'model.json', 'coordinates.json'}
+PUBLIC_FILES = {'model.json', 'coordinates.json', 'lidar-coarse.bin'}
 POINT = np.dtype([('p', '<f4', 3), ('c', 'u1', 4)])  # preview.bin record: x y z float32, rgba uint8
 TILE_M = 96
 MIN_TILE = 2000  # sparser cells share one remainder file instead of costing a request each
 COARSE_STRIDE = 12
 MAX_GPS_ERROR_M = 25
+MIN_WALK_SECONDS = 15    # a recording shorter than this, or one that never went anywhere, is a mis-fire:
+MIN_WALK_METRES = 20     # it cannot reconstruct and it clutters the map and the leaderboard
 
 
 def sha256(path):
@@ -100,6 +105,7 @@ def build(release):
     release = release.resolve()
     model = json.loads((release / 'model.json').read_text())
     files = {model['preview'], model['preview_download'], 'coordinates.json'}
+    if model.get('reference'): files.add(model['reference']['file'])
     download = model['download']
     if 'parts' in download:
         assert sum(part['bytes'] for part in download['parts']) == download['bytes']
@@ -124,10 +130,24 @@ def build(release):
         shutil.copy2(release / name, dest)
     (target / 'model.json').write_text(json.dumps(model, indent=2) + '\n')
     model = tile(target)
+    stamp_assets()
     check_scripts()
     print(json.dumps({'points': model['point_count'], 'preview_points': model['preview_points'],
                       'tiles': len(model['tiles']['tiles']), 'download_bytes': download['bytes'],
                       'static_assets': len(files)}, indent=2))
+
+
+def stamp_assets():
+    """Point each page at ?v=<content hash> for the stylesheet and scripts, so an edit is never served from cache."""
+    import re
+    versions = {a: sha256(DIST / a)[:8] for a in ['city.css', 'city.js', 'map.js'] if (DIST / a).is_file()}
+    for page in DIST.glob('*.html'):
+        text = original = page.read_text()
+        for asset, version in versions.items():
+            text = re.sub(rf'/{re.escape(asset)}(\?v=[0-9a-f]+)?"', f'/{asset}?v={version}"', text)
+        if text != original:
+            page.write_text(text)
+            print(f'stamped {page.name}')
 
 
 def check_scripts():
@@ -135,19 +155,33 @@ def check_scripts():
         subprocess.run(['node', '--check', str(DIST / script)], check=True)
 
 
+def heading(frame):
+    """Compass bearing the camera looks along, from the ARKit camera-to-world pose (x east, -z north)."""
+    t = frame.get('transform')
+    if not t:
+        return None
+    forward = (-t[0][2], -t[2][2])  # camera looks down its -z axis; world (x, z)
+    return round(math.degrees(math.atan2(forward[0], -forward[1])) % 360)
+
+
 def track(manifest):
-    """One walk: contributor + GPS polyline [lat, lon, seconds] from the selected frames' fixes."""
-    fixes = [(f['location'], f.get('video_timestamp_s')) for f in manifest.get('frames', []) if f.get('location')]
+    """One walk: contributor + GPS polyline [lat, lon, seconds, heading_deg] from the selected frames' fixes."""
+    frames = manifest.get('frames', [])
+    fixes = [(f['location'], f.get('video_timestamp_s'), heading(f)) for f in frames if f.get('location')]
     if manifest.get('location_start'):
-        fixes.insert(0, (manifest['location_start'], 0))
+        fixes.insert(0, (manifest['location_start'], 0, heading(frames[0]) if frames else None))
     points = []
-    for fix, seconds in fixes:
+    for fix, seconds, bearing in fixes:
         if fix['horizontal_accuracy_m'] > MAX_GPS_ERROR_M:
             continue
-        point = [round(fix['latitude'], 6), round(fix['longitude'], 6), round(seconds or 0, 1)]
+        point = [round(fix['latitude'], 6), round(fix['longitude'], 6), round(seconds or 0, 1), bearing]
         if not points or points[-1][:2] != point[:2]:
             points.append(point)
     if len(points) < 2:
+        return None
+    span = sum(math.dist(a[:2], b[:2]) for a, b in zip(points, points[1:])) * 111320   # degrees -> metres, near enough for a threshold
+    seconds = (manifest.get('video') or {}).get('duration_s') or points[-1][2]
+    if seconds < MIN_WALK_SECONDS or span < MIN_WALK_METRES:
         return None
     return {'id': manifest['id'], 'date': manifest['created_at'], 'device_id': manifest.get('device_id'),
             'contributor': manifest.get('contributor'), 'seconds': (manifest.get('video') or {}).get('duration_s'),
@@ -226,14 +260,28 @@ if __name__ == '__main__':
     parser.add_argument('--retile', action='store_true')
     parser.add_argument('--tracks', action='store_true')
     parser.add_argument('--all', action='store_true')
+    parser.add_argument('--serve', type=int, metavar='PORT', help='serve site/ and refresh the walk map every 10 minutes')
     parser.add_argument('--captures', type=Path, nargs='*', default=[], help='local capture folders to include')
     args = parser.parse_args()
     if args.release:
         build(args.release)
     if args.retile or args.all:
         tile(DIST / 'city-model')
+        stamp_assets()
         check_scripts()
     if args.tracks or args.all:
         tracks(args.captures)
-    if not (args.release or args.retile or args.tracks or args.all):
+    if args.serve:
+        import http.server, threading, functools
+        def refresh():
+            while True:
+                try:
+                    tracks(args.captures)
+                except Exception as error:  # a failed refresh keeps the last good tracks.json
+                    print('tracks refresh failed:', error, flush=True)
+                time.sleep(600)
+        threading.Thread(target=refresh, daemon=True).start()
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(DIST))
+        http.server.ThreadingHTTPServer(('', args.serve), handler).serve_forever()
+    if not (args.release or args.retile or args.tracks or args.all or args.serve):
         parser.error('nothing to do')
