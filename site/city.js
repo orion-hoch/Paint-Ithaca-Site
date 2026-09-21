@@ -2,19 +2,13 @@ import * as THREE from './vendor/three.module.js';
 import {OrbitControls} from './vendor/OrbitControls.js';
 
 const $ = id => document.getElementById(id);
-// ?embed=1: inside the iPhone app, which adds its own exit button top-right and has no use for download or reset.
-if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('embed');
-// Where the model lives: <meta name="model-base"> - same-origin today, the scene bucket's public URL when it is enabled.
+// Model files come from <meta name="model-base">, or ./city-model/ next to this page.
 const base = new URL(document.querySelector('meta[name=model-base]')?.content || './city-model/', location.href);
 const asset = path => new URL(path, base).href;
 const megabytes = bytes => `${(bytes / 1000000).toFixed(bytes < 10000000 ? 1 : 0)} MB`;
 const infoSheet = $('info');
 $('info-open').onclick = () => infoSheet.showModal();
-infoSheet.addEventListener('click', event => {
-  if (event.target !== infoSheet) return;
-  const bounds = infoSheet.getBoundingClientRect();
-  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) infoSheet.close();
-});
+infoSheet.addEventListener('click', event => { if (event.target === infoSheet) infoSheet.close(); });
 $('download').addEventListener('keydown', event => {
   if (event.key === ' ') { event.preventDefault(); $('download').click(); }
 });
@@ -25,22 +19,17 @@ async function response(url) {
   return result;
 }
 
-function downloadLink(blob, name) {
-  const url = URL.createObjectURL(blob), link = document.createElement('a');
-  link.href = url; link.download = name; document.body.append(link); link.click(); link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-
+// sRGB byte to linear float: the tiles store sRGB colour, three.js wants linear vertex colours.
 const srgb = Float32Array.from({length: 256}, (_, i) => {
   const x = i / 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4;
 });
 
-// preview.bin / tile record: x y z float32 + rgba uint8; the alpha byte is the semantic class (8 = vegetation).
-// Vegetation is written last so hiding the trees is a draw-range change rather than a rebuild.
+// Each record in preview.bin and in the tiles is x y z float32 plus rgba uint8. The alpha byte is the semantic
+// class (8 = vegetation), and vegetation is packed last so hiding the trees is only a draw-range change.
 const VEGETATION = 8;
-function geometryFrom(buffer, expected) {
-  if (!buffer.byteLength || buffer.byteLength !== expected * 16) throw new Error('A model tile is incomplete.');
-  const raw = new DataView(buffer), count = expected;
+function geometryFrom(buffer, count) {
+  if (buffer.byteLength !== count * 16) throw new Error('A model tile is incomplete.');
+  const raw = new DataView(buffer);
   const positions = new Float32Array(count * 3), colors = new Float32Array(count * 3);
   let solid = 0, withoutTrees = 0;
   for (const pass of [0, 1]) {
@@ -65,43 +54,17 @@ function geometryFrom(buffer, expected) {
 
 async function load() {
   const info = await (await response(asset('model.json'))).json();
-  const date = new Date(info.updated_at || info.snapshot).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+  const version = info.updated_at || info.snapshot;
+  const date = new Date(version).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
   $('model-date').textContent = `Updated ${date}`;
   $('model-count').textContent = `${info.point_count.toLocaleString()} points`;
   const download = info.download;
   $('download').removeAttribute('aria-disabled');
   const downloadLabel = `Download city model · ${megabytes(download.bytes)}`;
   $('download').textContent = downloadLabel;
-  $('download').setAttribute('aria-label', downloadLabel);
   $('download').title = downloadLabel;
-  if (download.parts) {
-    $('download').href = '#download-model';
-    $('download').onclick = async event => {
-      event.preventDefault();
-      if ($('download').getAttribute('aria-disabled') === 'true') return;
-      $('download').setAttribute('aria-disabled', 'true');
-      $('download').setAttribute('aria-busy', 'true');
-      let loaded = 0;
-      try {
-        const parts = [];
-        for (const part of download.parts) {
-          const progress = `${Math.round(loaded / download.bytes * 100)}%`;
-          $('download-status').textContent = `Downloading ${progress}`;
-          const data = await (await response(asset(part.file))).arrayBuffer();
-          if (data.byteLength !== part.bytes) throw new Error('A download file was incomplete. Please try again.');
-          parts.push(data); loaded += data.byteLength;
-        }
-        if (loaded !== download.bytes) throw new Error('The download size did not match. Please try again.');
-        downloadLink(new Blob(parts, {type: 'application/zip'}), download.name);
-        $('download-status').textContent = 'Download ready.';
-        setTimeout(() => { if ($('download-status').textContent === 'Download ready.') $('download-status').textContent = ''; }, 4000);
-      } catch (error) { $('download-status').textContent = error.message; }
-      finally { $('download').removeAttribute('aria-disabled'); $('download').removeAttribute('aria-busy'); }
-    };
-  } else {
-    $('download').href = asset(download.file);
-    $('download').download = download.file;
-  }
+  $('download').href = asset(download.file);
+  $('download').download = download.file;
   let renderer;
   try { renderer = new THREE.WebGLRenderer({antialias: false, powerPreference: 'high-performance'}); }
   catch { throw new Error('Your browser could not start the 3D viewer. The model download is still available.'); }
@@ -126,14 +89,9 @@ async function load() {
   renderer.domElement.addEventListener('webglcontextlost', event => {
     event.preventDefault(); showError(new Error('The 3D view was interrupted. Reload this page to restore it.'));
   });
-  const version = info.updated_at || info.snapshot;
   const material = new THREE.PointsMaterial({vertexColors: true, size: 1.7, sizeAttenuation: false});
   const loaded = [];
   let trees = true;
-  const applyTrees = () => {
-    for (const {geometry} of loaded) geometry.setDrawRange(0, trees ? geometry.userData.count : geometry.userData.withoutTrees);
-    draw();
-  };
   const addPoints = async ({file, points}) => {
     const url = new URL(asset(file));
     url.searchParams.set('version', version);
@@ -147,15 +105,15 @@ async function load() {
   };
   const [[x0, y0, z0], [x1, y1, z1]] = info.bounds;
   const bounds = new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1));
-  // Open on the densest walk when the model is a few walks scattered across the city; the bounds would show specks.
+  // Open on the densest walk: with walks scattered across the city, the full bounds would show only specks.
   const center = info.focus ? new THREE.Vector3(...info.focus.center) : bounds.getCenter(new THREE.Vector3());
   const radius = Math.max(info.focus ? info.focus.radius : bounds.getSize(new THREE.Vector3()).length() / 2, 2);
-  controls.minDistance = 0.05; controls.maxDistance = Infinity;  // no leash: get down to the pavement or back off to the whole city
+  controls.minDistance = 0.05;  // close enough to stand on the pavement, and no upper limit so the whole city still fits
   controls.zoomSpeed = 1.6;
-  function fit(top = false) {
+  function fit() {
     const distance = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(1, 1 / camera.aspect);
     camera.up.set(0, 1, 0);
-    camera.position.copy(center).add(top ? new THREE.Vector3(0, distance, distance * .0001) : new THREE.Vector3(0, 1.4, 1).normalize().multiplyScalar(distance));
+    camera.position.copy(center).add(new THREE.Vector3(0, 1.4, 1).normalize().multiplyScalar(distance));
     controls.target.copy(center); controls.update(); draw();
   }
   $('trees').disabled = false;
@@ -165,7 +123,8 @@ async function load() {
     $('trees').setAttribute('aria-pressed', String(trees));
     $('trees').setAttribute('aria-label', label);
     $('trees').title = label;
-    applyTrees();
+    for (const {geometry} of loaded) geometry.setDrawRange(0, trees ? geometry.userData.count : geometry.userData.withoutTrees);
+    draw();
   };
   viewport.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '=', '-', 'Home'].includes(event.key)) return;
@@ -185,9 +144,10 @@ async function load() {
     camera.up.set(0, 1, 0); controls.update(); draw();
   });
   resize(); fit();
-  // Coarse sample first, then full tiles streamed nearest to the camera first; each tile draws as it lands.
+  // Coarse sample first, then the full tiles nearest the camera. Each tile draws as it lands.
   await addPoints(info.tiles.coarse);
   $('loading').hidden = true;
+  setupAnchor(scene, camera, controls, draw, loaded, renderer.domElement);
   $('viewer-status').textContent = `${info.preview_points.toLocaleString()} preview points · ${date}`;
   const pending = [...info.tiles.tiles];
   const nearest = () => {
@@ -196,8 +156,8 @@ async function load() {
     return pending.shift();
   };
   await Promise.all(Array.from({length: 4}, async () => { for (let tile; (tile = nearest());) await addPoints(tile); }));
-  // Reference layer: airborne LiDAR, coarse, only where no walk covers the ground. It is loaded last and drawn
-  // smaller and dimmer than the model so it reads as "nobody has scanned here yet" rather than as scanned geometry.
+  // Reference layer: coarse airborne LiDAR, only where no walk covers the ground. Loaded last and drawn smaller
+  // and dimmer than the model so it reads as "nobody has scanned here yet" rather than as captured geometry.
   if (info.reference) {
     try {
       const url = new URL(asset(info.reference.file));
@@ -208,19 +168,43 @@ async function load() {
       ghost.renderOrder = -1;
       ghost.userData.reference = true;      // skipped by the ground estimate below
       scene.add(ghost);
-      $('context').disabled = false;
-      $('context').onclick = () => {
-        ghost.visible = !ghost.visible;
-        const label = ghost.visible ? 'Hide unmapped ground' : 'Show unmapped ground';
-        $('context').setAttribute('aria-pressed', String(ghost.visible));
-        $('context').setAttribute('aria-label', label);
-        $('context').title = label;
-        draw();
-      };
       draw();
     } catch (error) { console.warn('reference layer unavailable:', error.message); }
   }
   setupLocate(info, scene, camera, controls, draw);
+}
+
+// Press the button, then click a point and the orbit turns around it. Only the model tiles are pickable: the
+// reference layer is never added to `loaded`.
+function setupAnchor(scene, camera, controls, draw, loaded, canvas) {
+  const marker = new THREE.Mesh(new THREE.SphereGeometry(0.8, 16, 12), new THREE.MeshBasicMaterial({color: '#ffffff'}));
+  marker.visible = false;
+  scene.add(marker);
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Points.threshold = 4;   // metres from the ray, and the nearest hit along the ray wins
+  let picking = false, down = null;
+  const set = on => {
+    picking = on;
+    $('anchor').setAttribute('aria-pressed', String(on));
+    $('viewport').classList.toggle('picking', on);
+    $('download-status').textContent = on ? 'Click a point to orbit around it' : '';
+  };
+  $('anchor').disabled = false;
+  $('anchor').onclick = () => set(!picking);
+  canvas.addEventListener('pointerdown', event => { down = [event.clientX, event.clientY]; });
+  canvas.addEventListener('click', event => {
+    if (!picking || !down || Math.hypot(event.clientX - down[0], event.clientY - down[1]) > 6) return;   // a drag is an orbit, not a pick
+    const bounds = canvas.getBoundingClientRect();
+    raycaster.setFromCamera(new THREE.Vector2((event.clientX - bounds.left) / bounds.width * 2 - 1, 1 - (event.clientY - bounds.top) / bounds.height * 2), camera);
+    const hit = raycaster.intersectObjects(loaded, false)[0];
+    if (!hit) { $('download-status').textContent = 'No point there. Click on the model.'; return; }
+    const position = hit.object.geometry.getAttribute('position');
+    marker.position.set(position.getX(hit.index), position.getY(hit.index), position.getZ(hit.index));
+    marker.visible = true;
+    controls.target.copy(marker.position); controls.update(); draw();
+    set(false);
+  });
+  addEventListener('keydown', event => { if (event.key === 'Escape' && picking) set(false); });
 }
 
 // Geolocate the viewer inside the model's local frame (metres, east/up/south) using the affine fit from build time.

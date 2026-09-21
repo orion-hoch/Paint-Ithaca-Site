@@ -13,13 +13,12 @@ canvas{display:block;width:100%;height:100%}
 .app-header{position:absolute;inset:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:max(12px,env(safe-area-inset-top)) max(22px,env(safe-area-inset-right)) 0 max(22px,env(safe-area-inset-left));pointer-events:none}
 h1{display:flex;align-items:center;gap:9px;font:400 25px/1.2 'Paint Ithaca Serif',Georgia,serif;letter-spacing:-1px;margin:0;text-shadow:0 1px 12px #0008}
 .logo{height:34px;width:auto;filter:drop-shadow(0 1px 4px #0006)}
-.app-header button{pointer-events:auto}
 .icon-button{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;padding:12px;border:0;border-radius:50%;background:transparent;color:inherit;flex-shrink:0}
 .icon-button svg{display:block;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.45;stroke-linecap:round;stroke-linejoin:round}
 .icon-button .filled{fill:currentColor;stroke:none}
 .icon-button:hover{background:#ffffff16}
 button:disabled,[aria-disabled=true]{opacity:.35;cursor:default;pointer-events:none}
-button:focus-visible,a:focus-visible,summary:focus-visible,#viewport:focus-visible{outline:2px solid #d6bfeb;outline-offset:3px}
+button:focus-visible,a:focus-visible,#viewport:focus-visible{outline:2px solid #d6bfeb;outline-offset:3px}
 .loading{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
 .spinner{width:24px;height:24px;border:1.5px solid #fff3;border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -37,22 +36,19 @@ dialog .icon-button:hover{background:#373a2e0c}
 dialog p{margin:12px 0;font-size:16px}
 .muted{color:#676b5f}
 .sheet-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin:24px 0}
-.sheet-actions button,.sheet-actions a{background:none;border:0;padding:0;color:inherit;font-size:14px;text-decoration:underline;text-underline-offset:4px;min-height:36px;display:inline-flex;align-items:center}
-details{border-top:1px solid #373a2e22;padding:16px 0;font-size:14px}
-summary{cursor:pointer}
-details p{color:#676b5f;font-size:14px}
-.credits{font-size:14px;color:#555d4e;text-underline-offset:4px}
+.sheet-actions a{background:none;border:0;padding:0;color:inherit;font-size:14px;text-decoration:underline;text-underline-offset:4px;min-height:36px;display:inline-flex;align-items:center}
 @media(max-width:600px){dialog{margin:auto auto 12px;border-radius:24px 24px 18px 18px;padding-bottom:max(24px,env(safe-area-inset-bottom))}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.spinner{border-color:#ffffff66}}
 .app-header nav{display:flex;gap:2px;pointer-events:auto}
-[aria-busy=true]{opacity:.5;pointer-events:none}
 .app-header a.icon-button{color:inherit}
 #trees .slash{display:none}
 #trees[aria-pressed=false] .slash{display:block}
 #trees[aria-pressed=false]{color:#ffffff8c}
-#context[aria-pressed=false]{color:#ffffff8c}
+#anchor[aria-pressed=true]{color:#14171C;background:#F0C9BA}
+#anchor[aria-pressed=true]:hover{background:#F0C9BA}
+#viewport.picking{cursor:crosshair}
 /* Walk map page */
-.map-page{--panel:34vh;color-scheme:light;color:#4c514b;background:#f5f3ec}
+.map-page{--panel:34vh;--panel-collapsed:56px;color-scheme:light;color:#4c514b;background:#f5f3ec}
 .map-page .viewer{display:flex;flex-direction:column;overflow:hidden}
 #map{flex:1;min-height:0;background:#e9e6dc}
 .map-page h1{color:#4c514b;text-shadow:none;background:#fff;padding:5px 14px 5px 8px;border-radius:14px;box-shadow:0 2px 10px #0003;pointer-events:auto}
@@ -69,7 +65,6 @@ details p{color:#676b5f;font-size:14px}
 .collapsed .panel{height:auto}
 .collapsed .panel ol,.collapsed #map-status{display:none}
 .collapsed .locate,.collapsed .replay{top:auto;bottom:calc(var(--panel-collapsed) + 14px)}
-.map-page{--panel-collapsed:56px}
 .tabs button{background:none;border:0;padding:8px 14px;border-radius:999px;color:#676b5f;font-size:15px}
 .tabs button[aria-selected=true]{background:#373a2e12;color:#4c514b}
 #map-status{margin:6px 22px;font-size:13px}
@@ -90,9 +85,16 @@ details p{color:#676b5f;font-size:14px}
 .replay .icon-button svg{fill:currentColor}
 @media(min-width:900px){.replay{top:auto;bottom:max(24px,env(safe-area-inset-bottom));right:450px;left:max(24px,env(safe-area-inset-left));max-width:520px}}
 .replay .playing svg path{d:path('M7 5h4v14H7zM13 5h4v14h-4z')}
-/* Inside the app the native bar owns the controls; the page shows nothing but the content. */
-.embed .app-header,.embed .sheet-actions a[href='/']{display:none!important}
-.embed .replay{right:76px}
-.embed #locate{display:inline-flex;position:absolute;right:max(14px,env(safe-area-inset-right));bottom:max(24px,env(safe-area-inset-bottom));background:#0008;z-index:5}
 @media(max-width:600px){h1{font-size:22px;gap:6px}.logo{height:28px}.app-header{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(6px,env(safe-area-inset-right))}.icon-button{width:42px;height:42px;padding:9px}.app-header nav{gap:0}}
 @media(max-width:420px){h1 span{display:none}}
+/* Text pages (privacy): the map page's light palette, a normal scrolling document. */
+.text-page{color-scheme:light;color:#4c514b;background:#f5f3ec;overflow:auto}
+.text-page .app-header{position:sticky;top:0;inset:auto;z-index:1;background:#f5f3ec;padding-bottom:8px}
+.text-page h1{color:#4c514b;text-shadow:none}
+.text-page h1 a{display:flex;align-items:center;gap:9px;color:inherit;text-decoration:none;pointer-events:auto}
+.text-page .logo{filter:none}
+.text-page .icon-button:hover{background:#373a2e0c}
+.text{max-width:640px;margin:0 auto;padding:8px 22px max(48px,env(safe-area-inset-bottom))}
+.text h3{font:400 20px/1.3 'Paint Ithaca Serif',Georgia,serif;margin:28px 0 8px}
+.text p{margin:8px 0}
+.text a{color:inherit;text-underline-offset:4px}

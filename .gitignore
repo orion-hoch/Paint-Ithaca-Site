@@ -2,5 +2,5 @@
 __pycache__/
 .venv/
 .DS_Store
-.pytest_cache/
 site/city-model/
+blocked-names.txt

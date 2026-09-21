@@ -2,9 +2,8 @@
 
     build.py --release DIR   stage a verified model release, then tile it
     build.py --retile        re-tile the staged preview and refit the geo transform
-    build.py --tracks        rebuild tracks.json (walk map + leaderboard) from the uploads bucket
-    build.py --all           retile + tracks + script checks (what CI runs)
-    build.py --serve PORT    serve site/ and rebuild tracks.json every 10 minutes (what Railway runs)
+    build.py --tracks        rebuild tracks.json (walk map and leaderboard) from the uploads bucket
+    build.py --serve PORT    serve site/ and rebuild tracks.json every 10 minutes
 
 R2 credentials come from R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET,
 or from the JSON file named by R2_SETTINGS (keys s3_endpoint, access_key_id, secret_access_key, uploads_bucket).
@@ -15,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -24,7 +24,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / 'site'
-# Release metadata that names or counts third-party imagery is not published; the model stands on its own.
+# Release metadata that names or counts third-party imagery is never published.
 PRIVATE_KEYS = {'credits', 'credits_url', 'mapillary_images', 'displayed_images_by_source', 'input_note', 'details',
                 'summary', 'coverage', 'provenance', 'retained_provenance', 'surface_quality', 'components', 'details_file',
                 'refinement_review', 'registration_scope'}
@@ -104,19 +104,10 @@ def tile(target):
 def build(release):
     release = release.resolve()
     model = json.loads((release / 'model.json').read_text())
-    files = {model['preview'], model['preview_download'], 'coordinates.json'}
-    if model.get('reference'): files.add(model['reference']['file'])
     download = model['download']
-    if 'parts' in download:
-        assert sum(part['bytes'] for part in download['parts']) == download['bytes']
-        for part in download['parts']:
-            path = release / part['file']
-            assert path.stat().st_size == part['bytes'], f'Incomplete part: {path}'
-            assert sha256(path) == part['sha256'], f'Changed part: {path}'
-            files.add(part['file'])
-    else:
-        files.add(download['file'])
-    assert (release / model['preview']).stat().st_size == model['preview_points'] * 16
+    files = {model['preview'], model['preview_download'], download['file'], 'coordinates.json'}
+    if model.get('reference'): files.add(model['reference']['file'])
+    assert (release / model['preview']).stat().st_size == model['preview_points'] * POINT.itemsize
     for name in files:
         source = release / name
         assert source.resolve().is_relative_to(release), f'Invalid asset path: {name}'
@@ -124,10 +115,8 @@ def build(release):
     target = DIST / 'city-model'
     target.mkdir(exist_ok=True)
     # Publish the index last so it always refers to complete model files.
-    for name in sorted(files - {'model.json'}):
-        dest = target / name
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(release / name, dest)
+    for name in sorted(files):
+        shutil.copy2(release / name, target / name)
     (target / 'model.json').write_text(json.dumps(model, indent=2) + '\n')
     model = tile(target)
     stamp_assets()
@@ -139,7 +128,6 @@ def build(release):
 
 def stamp_assets():
     """Point each page at ?v=<content hash> for the stylesheet and scripts, so an edit is never served from cache."""
-    import re
     versions = {a: sha256(DIST / a)[:8] for a in ['city.css', 'city.js', 'map.js'] if (DIST / a).is_file()}
     for page in DIST.glob('*.html'):
         text = original = page.read_text()
@@ -151,7 +139,7 @@ def stamp_assets():
 
 
 def check_scripts():
-    for script in ['city.js', 'map.js', 'vendor/three.module.js', 'vendor/three.core.js', 'vendor/OrbitControls.js', 'vendor/leaflet.js']:
+    for script in ['city.js', 'map.js']:
         subprocess.run(['node', '--check', str(DIST / script)], check=True)
 
 
@@ -164,8 +152,11 @@ def heading(frame):
     return round(math.degrees(math.atan2(forward[0], -forward[1])) % 360)
 
 
-def track(manifest):
-    """One walk: contributor + GPS polyline [lat, lon, seconds, heading_deg] from the selected frames' fixes."""
+def track(manifest, capture_id, account=None):
+    """One walk: GPS polyline [lat, lon, seconds, heading_deg] from the selected frames' fixes.
+
+    `capture_id` is the validated bucket key and `account` the hash the upload broker stamped on the manifest object;
+    neither comes from inside the upload, so a manifest cannot claim another walk's id or another person's name."""
     frames = manifest.get('frames', [])
     fixes = [(f['location'], f.get('video_timestamp_s'), heading(f)) for f in frames if f.get('location')]
     if manifest.get('location_start'):
@@ -180,12 +171,10 @@ def track(manifest):
     if len(points) < 2:
         return None
     span = sum(math.dist(a[:2], b[:2]) for a, b in zip(points, points[1:])) * 111320   # degrees -> metres, near enough for a threshold
-    seconds = (manifest.get('video') or {}).get('duration_s') or points[-1][2]
-    if seconds < MIN_WALK_SECONDS or span < MIN_WALK_METRES:
+    seconds = (manifest.get('video') or {}).get('duration_s')
+    if (seconds or points[-1][2]) < MIN_WALK_SECONDS or span < MIN_WALK_METRES:
         return None
-    return {'id': manifest['id'], 'date': manifest['created_at'], 'device_id': manifest.get('device_id'),
-            'contributor': manifest.get('contributor'), 'seconds': (manifest.get('video') or {}).get('duration_s'),
-            'points': points}
+    return {'id': capture_id, 'date': str(manifest['created_at']), 'account': account, 'seconds': seconds, 'points': points}
 
 
 def r2():
@@ -206,16 +195,21 @@ def r2():
     return client, bucket
 
 
-def tracks(captures=()):
-    """Write site/tracks.json from completed uploads (captures/<id>/complete.json) and local capture folders."""
-    cache = ROOT / '.cache' / 'tracks'
+def blocked_words():
+    """Entries of blocked-names.txt (next to this file, git-ignored) plus $BLOCKED_NAMES (comma separated), lower-cased."""
+    path = ROOT / 'blocked-names.txt'
+    words = (path.read_text().splitlines() if path.exists() else []) + os.environ.get('BLOCKED_NAMES', '').split(',')
+    return [w.strip().lower() for w in words if w.strip()]
+
+
+def tracks():
+    """Write site/tracks.json from completed uploads (captures/<id>/complete.json). One bad upload skips one walk, never the file."""
+    cache = ROOT / '.cache' / 'tracks-v2'
     cache.mkdir(parents=True, exist_ok=True)
     walks, users = {}, []
-    for folder in captures:
-        for manifest in sorted(Path(folder).glob('*/manifest.json')):
-            walk = track(json.loads(manifest.read_text()))
-            if walk:
-                walks[walk['id']] = walk
+    words = blocked_words()
+    if not words:
+        print('warning: no blocked names configured (blocked-names.txt or $BLOCKED_NAMES); nothing is filtered', flush=True)
     storage = r2()
     if storage:
         client, bucket = storage
@@ -230,24 +224,28 @@ def tracks(captures=()):
                 except ValueError:
                     continue
                 cached = cache / f'{capture_id}.json'
-                if not cached.exists():
-                    body = client.get_object(Bucket=bucket, Key=f'captures/{capture_id}/manifest.json')['Body'].read()
-                    cached.write_text(json.dumps(track(json.loads(body))))
-                walk = json.loads(cached.read_text())
+                try:
+                    if not cached.exists():
+                        stored = client.get_object(Bucket=bucket, Key=f'captures/{capture_id}/manifest.json')
+                        cached.write_text(json.dumps(track(json.loads(stored['Body'].read()), capture_id, stored.get('Metadata', {}).get('account'))))
+                    walk = json.loads(cached.read_text())
+                except Exception as error:  # uploads are untrusted: a malformed manifest costs that walk, not the map
+                    print(f'skipping {capture_id}: {error}', flush=True)
+                    continue
                 if walk:
                     walks[walk['id']] = walk
         for page in pages.paginate(Bucket=bucket, Prefix='users/'):
             for entry in page.get('Contents', []):
-                users.append(json.loads(client.get_object(Bucket=bucket, Key=entry['Key'])['Body'].read()))
-    # Later name changes win; an explicit capture claim beats a device match.
-    by_device, by_capture = {}, {}
-    for user in sorted(users, key=lambda u: u.get('updated_at', '')):
-        by_device[user['device_id']] = user['username']
-        for capture_id in user.get('captures', []):
-            by_capture[capture_id] = user['username']
+                user = json.loads(client.get_object(Bucket=bucket, Key=entry['Key'])['Body'].read())
+                if isinstance(user, dict) and isinstance(user.get('account_id'), str):
+                    users.append(user)
+    # One name per account, written by the broker; the account id itself never reaches the page.
+    by_account = {user['account_id']: str(user.get('username') or '') for user in users}
     public = []
     for walk in sorted(walks.values(), key=lambda w: w['date']):
-        name = by_capture.get(walk['id']) or by_device.get(walk['device_id']) or walk['contributor']
+        name = by_account.get(walk.get('account'))
+        if name and any(w in name.lower() for w in words):
+            name = None
         public.append({'id': walk['id'], 'date': walk['date'], 'seconds': walk['seconds'],
                        'contributor': (name or '').strip()[:40] or None, 'points': walk['points']})
     (DIST / 'tracks.json').write_text(json.dumps({'walks': public}, separators=(',', ':')) + '\n')
@@ -259,29 +257,27 @@ if __name__ == '__main__':
     parser.add_argument('--release', type=Path)
     parser.add_argument('--retile', action='store_true')
     parser.add_argument('--tracks', action='store_true')
-    parser.add_argument('--all', action='store_true')
     parser.add_argument('--serve', type=int, metavar='PORT', help='serve site/ and refresh the walk map every 10 minutes')
-    parser.add_argument('--captures', type=Path, nargs='*', default=[], help='local capture folders to include')
     args = parser.parse_args()
     if args.release:
         build(args.release)
-    if args.retile or args.all:
+    if args.retile:
         tile(DIST / 'city-model')
         stamp_assets()
         check_scripts()
-    if args.tracks or args.all:
-        tracks(args.captures)
+    if args.tracks:
+        tracks()
     if args.serve:
         import http.server, threading, functools
         def refresh():
             while True:
                 try:
-                    tracks(args.captures)
+                    tracks()
                 except Exception as error:  # a failed refresh keeps the last good tracks.json
                     print('tracks refresh failed:', error, flush=True)
                 time.sleep(600)
         threading.Thread(target=refresh, daemon=True).start()
         handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(DIST))
         http.server.ThreadingHTTPServer(('', args.serve), handler).serve_forever()
-    if not (args.release or args.retile or args.tracks or args.all or args.serve):
+    if not (args.release or args.retile or args.tracks or args.serve):
         parser.error('nothing to do')

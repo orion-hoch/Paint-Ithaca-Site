@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Paint Ithaca — Privacy</title>
+  <meta name="description" content="What the Paint Ithaca app records, what is public, how long it is kept, and how to have a walk removed.">
+  <link rel="canonical" href="https://paint-ithaca.com/privacy.html">
+  <meta name="theme-color" content="#f5f3ec">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/city.css?v=1c9c264b">
+</head>
+<body class="text-page">
+  <header class="app-header">
+    <h1><a href="/"><img class="logo" src="/logo.png" alt="Paint Ithaca"><span>paint ithaca.</span></a></h1>
+    <nav aria-label="Pages">
+      <a class="icon-button" href="/" aria-label="3D city model" title="3D model">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+      </a>
+      <a class="icon-button" href="/map.html" aria-label="Walk map and leaderboard" title="Walk map">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14"/></svg>
+      </a>
+    </nav>
+  </header>
+  <main class="text">
+    <h2>Privacy</h2>
+    <p class="muted">Updated September 20, 2026</p>
+    <h3>What the app records</h3>
+    <p>When you record a walk, the app saves a video from the camera, the camera's position and orientation for every frame, your GPS route with compass heading, and, on phones with a LiDAR sensor, a depth map about once a second. It records no audio and never reads your photo library. Nothing leaves your phone until you tap Submit.</p>
+    <h3>What Submit sends</h3>
+    <p>Submit uploads that video, the camera measurements, the depth maps and the GPS route to the project's storage, tagged with your account. There is no advertising identifier.</p>
+    <h3>Your account</h3>
+    <p>Submitting a walk needs Sign in with Apple. We ask Apple for no name and no email address, and we receive neither. What we keep is a one-way hash of the identifier Apple gives this app for you, which is how we count walks (twenty a day) and attach your chosen name to them. Exploring the city and the walk map needs no sign-in.</p>
+    <p>You can delete your account in the app under your name. That removes your name from every walk you submitted, removes Paint Ithaca from your Apple ID, and signs you out on every phone. The walks themselves stay in the city model as anonymous contributions.</p>
+    <h3>What is public</h3>
+    <p>The GPS route of every submitted walk is shown on the walk map with the name you chose in the app, or as Anonymous. The 3D model is built from the video and published for anyone to explore and download. People and vehicles are left out of the model. The video itself is never published.</p>
+    <h3>What is kept</h3>
+    <p>The uploaded video, depth maps and camera measurements are deleted 14 days after you record the walk, once the model has been built from it or the walk has been rejected. A walk still waiting its turn keeps its upload until then. The points built from it, the route and the walk's date are kept as part of the city model. Deleting a walk in the app removes only the copy on your phone.</p>
+    <h3>Your name</h3>
+    <p>The name is optional. It belongs to your account, so changing or clearing it changes every walk you submitted, from any phone. Names are public. Offensive names are replaced by Anonymous.</p>
+    <h3>People in the video</h3>
+    <p>Faces and licence plates in the uploaded video are not blurred. That is why it stays private, is used for nothing but building the model, and is deleted after two weeks.</p>
+    <h3>Removing a walk</h3>
+    <p>To have a walk, a route or a name removed, write to <a href="mailto:hello@paint-ithaca.com">hello@paint-ithaca.com</a> with the date and place of the walk. The route comes off the walk map when we delete the upload, and the next nightly rebuild takes the walk out of the model.</p>
+    <h3>Location</h3>
+    <p>Location is used only while the app is open, to place your walk on the map and to show your position in the model. Recording works without it.</p>
+    <p class="muted">Paint Ithaca is a community project, not a company. There is no tracking, no analytics and no sale of data.</p>
+  </main>
+</body>
+</html>
